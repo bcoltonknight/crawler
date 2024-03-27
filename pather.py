@@ -26,9 +26,8 @@ async def get_parent(site: str):
 
 async def main():
     args = init_args()
-    base = 'https://wordpress.org/news/2023/12/people-of-wordpress-artemy-kaydash/'
-    print(f'{urllib.parse.unquote(base)}', end='')
-    parent = await get_parent(base)
+    print(f'{urllib.parse.unquote(args.url)}', end='')
+    parent = await get_parent(args.url)
     while parent != '':
         print(f'<-{urllib.parse.unquote(parent)}', end='')
         parent = await get_parent(parent)
