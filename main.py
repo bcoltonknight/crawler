@@ -97,7 +97,7 @@ async def worker(urls: asyncio.Queue, visited: asyncio.Queue, db: asyncio.Queue)
             data = {
                 'User-Agent': random.choice(agents)
             }
-            print(data)
+            # print(data)
             async with aiohttp.ClientSession(headers=data) as session:
                 async with session.get(target[0]) as r:
                     # print('Get')
