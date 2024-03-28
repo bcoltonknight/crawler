@@ -1,3 +1,4 @@
 aiohttp~=3.9.3
 aiosqlite~=0.20.0
 beautifulsoup4~=4.12.3
+aiohttp_socks

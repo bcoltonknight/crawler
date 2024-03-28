@@ -1,9 +1,10 @@
 import asyncio
 import aiohttp
 from bs4 import BeautifulSoup
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 import aiosqlite
 import argparse
+from aiohttp_socks import ProxyConnector
 import random
 
 
@@ -27,6 +28,9 @@ def init_args():
                         help='The number of async database workers to spawn',
                         dest='dw',
                         default=3)
+    parser.add_argument('-t', '--tor',
+                        help='Include tor hidden services',
+                        action="store_true")
 
     return parser.parse_args()
 
@@ -39,7 +43,14 @@ async def init():
 async def init_queue(urls, visited, db):
     target = await urls.get()
     # print(target)
-    async with aiohttp.ClientSession() as session:
+    data = {
+        'User-Agent': random.choice(agents)
+    }
+
+    if args.tor:
+        connector = ProxyConnector.from_url('socks5://127.0.0.1:9050')
+
+    async with aiohttp.ClientSession(headers=data, connector=connector if args.tor else None) as session:
         async with session.get(target[0]) as r:
             if r.status == 404:
                 pass
@@ -90,6 +101,8 @@ async def worker(urls: asyncio.Queue, visited: asyncio.Queue, db: asyncio.Queue)
     # print([item for item in urls.queue])
     while not urls.empty() or first:
         target = await urls.get()
+        if args.tor:
+            connector = ProxyConnector.from_url('socks5://127.0.0.1:9050')
         # print(target)
         # print(urls.qsize())
         try:
@@ -98,7 +111,7 @@ async def worker(urls: asyncio.Queue, visited: asyncio.Queue, db: asyncio.Queue)
                 'User-Agent': random.choice(agents)
             }
             # print(data)
-            async with aiohttp.ClientSession(headers=data) as session:
+            async with aiohttp.ClientSession(headers=data, connector=connector if args.tor else None) as session:
                 async with session.get(target[0]) as r:
                     # print('Get')
                     # print(r.status)
@@ -107,11 +120,14 @@ async def worker(urls: asyncio.Queue, visited: asyncio.Queue, db: asyncio.Queue)
                     body = await r.text()
                     # print(body)
                     soup = BeautifulSoup(body, "html.parser")
-            print(f"\"{target[0]}\", \"{soup.find('title').string}\"")
+            title = soup.find('title').string.replace('\n', '')
+            print(f"\"{target[0]}\", \"{(title[:75] + '...' if len(title) > 75 else title)}\"")
             # print(f"Putting {(target[0], soup.find('title').string, target[1])} into DB Queue")
             await db.put((target[0], soup.find('title').string, target[1]))
             # print("Put")
             for element in soup.select('a[href]'):
+                if '.onion' in target[1] and '.onion' not in target[0]:
+                    break
                 url = element['href']
                 # print([item for item in urls.queue])
                 # print([item for item in visited.queue])
@@ -120,8 +136,9 @@ async def worker(urls: asyncio.Queue, visited: asyncio.Queue, db: asyncio.Queue)
                     working = urlparse(target[0])
                     url = '://'.join(working[:2]) + url
 
-                if url.startswith('http') and url not in [item for item in visited._queue]:
-                    await visited.put(url)
+                if url.startswith('http') and unquote(url).split('?')[0] not in [item for item in visited._queue]:
+                    # print(url.split('?')[0])
+                    await visited.put(unquote(url).split('?')[0])
                     await urls.put((url, target[0]))
 
         except Exception as e:
@@ -138,7 +155,6 @@ async def worker(urls: asyncio.Queue, visited: asyncio.Queue, db: asyncio.Queue)
 
 async def main():
     await init()
-    args = init_args()
     visited = asyncio.Queue()
     urls = asyncio.Queue()
     db = asyncio.Queue(maxsize=100)
@@ -149,11 +165,12 @@ async def main():
     # sleep(5)
     # print('Generating workers')
 
-    db_workers = asyncio.gather(*[asyncio.create_task(db_worker(db)) for i in range(args.dw)])
-    await asyncio.gather(*[asyncio.create_task(worker(urls, visited, db)) for i in range(args.workers)])
+    db_workers = asyncio.gather(*[asyncio.create_task(db_worker(db)) for i in range(int(args.dw))])
+    await asyncio.gather(*[asyncio.create_task(worker(urls, visited, db)) for i in range(int(args.workers))])
     return
 
 
 if __name__ == '__main__':
+    args = init_args()
     # asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(main())
